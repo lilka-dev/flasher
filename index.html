@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lilka Updater - Оновлення прошивки</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <img src="https://lilka.dev/img/logo.svg" alt="Lilka" onerror="this.style.display='none'">
+                <h1>Lilka Updater</h1>
+            </div>
+            <p class="subtitle">Оновлення прошивки Keira для Lilka</p>
+        </header>
+
+        <main>
+            <section class="info-section">
+                <div class="info-card">
+                    <h3>🎮 Що таке Lilka?</h3>
+                    <p>Lilka — це українська ретро-консоль на базі ESP32, створена для навчання та розваг.</p>
+                </div>
+                <div class="info-card">
+                    <h3>⚡ Що таке Keira?</h3>
+                    <p>Keira — це операційна система для Lilka з іграми, емуляторами та корисними застосунками.</p>
+                </div>
+            </section>
+            
+            <section class="instructions-section">
+                <h2>📖 Інструкція</h2>
+                <ol>
+                    <li>Підключіть Lilka до комп'ютера через USB-кабель</li>
+                    <li>Виберіть версію прошивки зі списку нижче та натисніть "Встановити"</li>
+                    <li>Завантажте файл прошивки (.bin) натиснувши кнопку "Завантажити"</li>
+                    <li>Виберіть завантажений файл через "Вибрати .bin файл"</li>
+                    <li>Натисніть "Підключити та прошити" і виберіть COM-порт</li>
+                    <li>Дочекайтеся завершення прошивки</li>
+                </ol>
+                <div class="note">
+                    <strong>Примітка:</strong> Якщо порт не з'являється, можливо потрібно встановити драйвер CH340/CP2102. 
+                    Переконайтеся, що ви використовуєте <strong>Chrome, Edge або Opera</strong> — інші браузери не підтримують Web Serial API.
+                </div>
+            </section>
+
+            <section class="releases-section">
+                <h2>📦 Доступні версії</h2>
+                <div class="browser-warning" id="browserWarning">
+                    <p>⚠️ Web Serial API підтримується тільки в Chrome, Edge та Opera. Будь ласка, використовуйте один з цих браузерів.</p>
+                </div>
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Завантаження релізів...</p>
+                </div>
+                <div class="releases-list" id="releasesList"></div>
+            </section>
+
+            <!-- Flash Modal -->
+            <div class="modal-overlay" id="flashModal">
+                <div class="modal">
+                    <div class="modal-header">
+                        <h3>⚡ Прошивка Lilka</h3>
+                        <button class="modal-close" onclick="closeFlashModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="flashInfo">
+                            <p><strong>Версія:</strong> <span id="flashVersion"></span></p>
+                        </div>
+                        
+                        <div class="file-select-section">
+                            <p class="step-label">Крок 1: Завантажте файл прошивки</p>
+                            <div class="firmware-options" id="firmwareOptions">
+                                <!-- Will be populated by JS -->
+                            </div>
+                            
+                            <p class="step-label">Крок 2: Виберіть завантажений файл</p>
+                            <label class="file-input-label">
+                                <input type="file" id="firmwareFile" accept=".bin" onchange="onFileSelected(this)">
+                                <span class="file-input-text" id="fileInputText">📁 Вибрати .bin файл</span>
+                            </label>
+                        </div>
+                        
+                        <div class="flash-progress" id="flashProgress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <p class="progress-text" id="progressText">Готово до прошивки</p>
+                        </div>
+                        <div class="flash-log" id="flashLog"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeFlashModal()" id="cancelBtn">Скасувати</button>
+                        <button class="btn btn-primary" onclick="startFlash()" id="flashBtn" disabled>🔌 Підключити та прошити</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>
+                <a href="https://lilka.dev" target="_blank">lilka.dev</a> • 
+                <a href="https://github.com/lilka-dev/" target="_blank">GitHub</a> • 
+                <a href="https://docs.lilka.dev" target="_blank">Docs</a>
+            </p>
+        </footer>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "pako": "https://cdn.jsdelivr.net/npm/pako@2.1.0/+esm"
+        }
+    }
+    </script>
+    <script type="module">
+        import { ESPLoader, Transport } from 'https://cdn.jsdelivr.net/npm/esptool-js@0.4.3/+esm';
+        window.EspLoader = ESPLoader;
+        window.Transport = Transport;
+        
+        // Signal that esptool is loaded
+        window.esptoolLoaded = true;
+        window.dispatchEvent(new Event('esptool-loaded'));
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
