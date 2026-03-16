@@ -524,6 +524,132 @@ async function fetchReleases() {
   }
 }
 
+// Erase flash
+async function startErase() {
+  if (!('serial' in navigator)) {
+    alert(
+        'Ваш браузер не підтримує Web Serial API. Використовуйте Chrome, Edge або Opera.');
+    return;
+  }
+
+  const eraseBtn = document.getElementById('eraseBtn');
+  const eraseProgress = document.getElementById('eraseProgress');
+  const eraseProgressFill = document.getElementById('eraseProgressFill');
+  const eraseProgressText = document.getElementById('eraseProgressText');
+  const eraseLog = document.getElementById('eraseLog');
+
+  function eraseLogMsg(message, type = 'info') {
+    const p = document.createElement('p');
+    p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    p.className = `log-${type}`;
+    eraseLog.appendChild(p);
+    eraseLog.scrollTop = eraseLog.scrollHeight;
+  }
+
+  if (!confirm('Ви впевнені? Це повністю зітре flash-пам\'ять пристрою!')) {
+    return;
+  }
+
+  eraseBtn.disabled = true;
+  eraseBtn.textContent = 'Стирання...';
+  eraseLog.innerHTML = '';
+  eraseLog.classList.add('active');
+  eraseProgress.style.display = 'block';
+  eraseProgressFill.style.width = '0%';
+
+  let erasePort = null;
+
+  try {
+    eraseLogMsg('Виберіть COM-порт у діалоговому вікні...');
+    eraseProgressFill.style.width = '10%';
+    eraseProgressText.textContent = 'Підключення до пристрою...';
+
+    erasePort = await navigator.serial.requestPort();
+    eraseLogMsg('Порт вибрано!', 'success');
+
+    if (typeof window.EspLoader === 'undefined' ||
+        typeof window.Transport === 'undefined') {
+      throw new Error('ESPTool не завантажено. Будь ласка, оновіть сторінку.');
+    }
+
+    eraseProgressFill.style.width = '20%';
+    eraseProgressText.textContent = 'Ініціалізація ESP32...';
+    eraseLogMsg('Ініціалізація ESP32...');
+
+    const terminal = {
+      clean() {},
+      writeLine(data) {
+        eraseLogMsg(data);
+      },
+      write(data) {
+        const lastP = eraseLog.lastElementChild;
+        if (lastP && !lastP.textContent.includes('[')) {
+          lastP.textContent += data;
+        } else {
+          const p = document.createElement('p');
+          p.textContent = data;
+          eraseLog.appendChild(p);
+        }
+        eraseLog.scrollTop = eraseLog.scrollHeight;
+      }
+    };
+
+    const transport = new window.Transport(erasePort);
+    const esploader = new window.EspLoader({
+      transport: transport,
+      baudrate: 115200,
+      terminal: terminal,
+      romBaudrate: 115200,
+      enableTracing: false
+    });
+
+    eraseLogMsg('Перехід в режим завантажувача...');
+    await esploader.main();
+    eraseLogMsg(`Виявлено чіп: ${esploader.chipName}`, 'success');
+
+    eraseProgressFill.style.width = '40%';
+    eraseProgressText.textContent = 'Стирання flash-пам\'яті...';
+    eraseLogMsg('Стирання flash-пам\'яті... Це може зайняти деякий час.');
+
+    await esploader.eraseFlash();
+
+    eraseProgressFill.style.width = '90%';
+    eraseProgressText.textContent = 'Перезапуск пристрою...';
+    eraseLogMsg('Перезапуск пристрою...');
+
+    await esploader.hardReset();
+
+    eraseProgressFill.style.width = '100%';
+    eraseProgressText.textContent = '✅ Flash-пам\'ять успішно стерто!';
+    eraseProgressText.className = 'progress-text success';
+    eraseLogMsg('=== Flash-пам\'ять успішно стерто! ===', 'success');
+
+    eraseBtn.textContent = '✅ Готово!';
+
+  } catch (error) {
+    console.error('Erase error:', error);
+    eraseLogMsg(`Помилка: ${error.message}`, 'error');
+    eraseProgressText.textContent = `❌ Помилка: ${error.message}`;
+    eraseProgressText.className = 'progress-text error';
+  } finally {
+    eraseBtn.disabled = false;
+    if (eraseBtn.textContent === 'Стирання...') {
+      eraseBtn.textContent = '🗑️ Стерти flash';
+    }
+    setTimeout(() => {
+      eraseBtn.textContent = '🗑️ Стерти flash';
+    }, 3000);
+
+    if (erasePort) {
+      try {
+        await erasePort.close();
+      } catch (e) {
+        console.error('Error closing port:', e);
+      }
+    }
+  }
+}
+
 // Close modal on escape key
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && flashModal.classList.contains('active')) {

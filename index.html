@@ -37,6 +37,19 @@
                 </div>
             </section>
 
+            <section class="erase-section">
+                <h2>🗑️ Очистити пристрій</h2>
+                <p>Повне стирання flash-пам'яті ESP32. Це видалить прошивку та всі дані з пристрою.</p>
+                <button class="btn btn-danger" id="eraseBtn" onclick="startErase()">🗑️ Стерти flash</button>
+                <div class="erase-progress" id="eraseProgress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="eraseProgressFill"></div>
+                    </div>
+                    <p class="progress-text" id="eraseProgressText">Готово до стирання</p>
+                </div>
+                <div class="flash-log" id="eraseLog"></div>
+            </section>
+
             <section class="releases-section">
                 <h2>📦 Доступні версії</h2>
                 <div class="browser-warning" id="browserWarning">
