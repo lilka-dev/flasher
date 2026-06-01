@@ -40,6 +40,43 @@ header {
     margin-bottom: 3rem;
 }
 
+.header-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1rem;
+}
+
+.language-switch {
+    display: inline-flex;
+    gap: 0.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.35rem;
+}
+
+.lang-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 0.35rem 0.6rem;
+    color: var(--text-secondary);
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.lang-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.lang-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+}
+
 .logo {
     display: flex;
     align-items: center;
@@ -159,8 +196,7 @@ header {
     position: relative;
 }
 
-.release-card.latest::before {
-    content: 'Остання версія';
+.latest-badge {
     position: absolute;
     top: -10px;
     left: 1rem;

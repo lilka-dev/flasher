@@ -12,34 +12,40 @@
 <body>
     <div class="container">
         <header>
+            <div class="header-controls">
+                <div class="language-switch" aria-label="Language switcher">
+                    <button class="lang-btn" id="langUkBtn" type="button" onclick="setLanguage('uk')">🇺🇦 УК</button>
+                    <button class="lang-btn" id="langEnBtn" type="button" onclick="setLanguage('en')">🇬🇧 EN</button>
+                </div>
+            </div>
             <div class="logo">
                 <img src="https://docs.lilka.dev/uk/latest/_static/lilka_logo.png" alt="Lilka" onerror="this.style.display='none'">
                 <h1>Lilka Flasher</h1>
             </div>
-            <p class="subtitle">Оновлення прошивки Keira для Lilka</p>
+            <p class="subtitle" id="subtitleText">Оновлення прошивки Keira для Lilka</p>
         </header>
 
         <main>
             
             <section class="instructions-section">
-                <h2>📖 Інструкція</h2>
+                <h2 id="instructionsTitle">📖 Інструкція</h2>
                 <ol>
-                    <li>Підключіть Lilka до комп'ютера через USB-кабель</li>
-                    <li>Виберіть версію прошивки зі списку нижче та натисніть "Встановити"</li>
-                    <li>Завантажте файл прошивки (.bin) натиснувши кнопку "Завантажити"</li>
-                    <li>Виберіть завантажений файл через "Вибрати .bin файл"(причина цієї подвійної роботи в системі безпеки браузера і GitHub)</li>
-                    <li>Натисніть "Підключити та прошити" і виберіть COM-порт</li>
-                    <li>Дочекайтеся завершення прошивки</li>
+                    <li id="instruction1">Підключіть Lilka до комп'ютера через USB-кабель</li>
+                    <li id="instruction2">Виберіть версію прошивки зі списку нижче та натисніть "Встановити"</li>
+                    <li id="instruction3">Завантажте файл прошивки (.bin) натиснувши кнопку "Завантажити"</li>
+                    <li id="instruction4">Виберіть завантажений файл через "Вибрати .bin файл"(причина цієї подвійної роботи в системі безпеки браузера і GitHub)</li>
+                    <li id="instruction5">Натисніть "Підключити та прошити" і виберіть COM-порт</li>
+                    <li id="instruction6">Дочекайтеся завершення прошивки</li>
                 </ol>
-                <div class="note">
-                    <strong>Примітка:</strong> Якщо порт не з'являється, можливо потрібно встановити драйвер CH340/CP2102. 
+                <div class="note" id="instructionsNote">
+                    <strong>Примітка:</strong> Якщо порт не з'являється, можливо потрібно встановити драйвер CH340/CP2102.
                     Переконайтеся, що ви використовуєте <strong>Chrome, Edge або Opera</strong> — інші браузери не підтримують Web Serial API.
                 </div>
             </section>
 
             <section class="erase-section">
-                <h2>🗑️ Очистити пристрій</h2>
-                <p>Повне стирання flash-пам'яті ESP32. Це видалить прошивку та всі дані з пристрою.</p>
+                <h2 id="eraseTitle">🗑️ Очистити пристрій</h2>
+                <p id="eraseDescription">Повне стирання flash-пам'яті ESP32. Це видалить прошивку та всі дані з пристрою.</p>
                 <button class="btn btn-danger" id="eraseBtn" onclick="startErase()">🗑️ Стерти flash</button>
                 <div class="erase-progress" id="eraseProgress" style="display: none;">
                     <div class="progress-bar">
@@ -51,13 +57,13 @@
             </section>
 
             <section class="releases-section">
-                <h2>📦 Доступні версії</h2>
+                <h2 id="releasesTitle">📦 Доступні версії</h2>
                 <div class="browser-warning" id="browserWarning">
-                    <p>⚠️ Web Serial API підтримується тільки в Chrome, Edge та Opera. Будь ласка, використовуйте один з цих браузерів.</p>
+                    <p id="browserWarningText">⚠️ Web Serial API підтримується тільки в Chrome, Edge та Opera. Будь ласка, використовуйте один з цих браузерів.</p>
                 </div>
                 <div class="loading" id="loading">
                     <div class="spinner"></div>
-                    <p>Завантаження релізів...</p>
+                    <p id="loadingText">Завантаження релізів...</p>
                 </div>
                 <div class="releases-list" id="releasesList"></div>
             </section>
@@ -66,21 +72,21 @@
             <div class="modal-overlay" id="flashModal">
                 <div class="modal">
                     <div class="modal-header">
-                        <h3>⚡ Прошивка Lilka</h3>
+                        <h3 id="flashModalTitle">⚡ Прошивка Lilka</h3>
                         <button class="modal-close" onclick="closeFlashModal()">&times;</button>
                     </div>
                     <div class="modal-body">
                         <div id="flashInfo">
-                            <p><strong>Версія:</strong> <span id="flashVersion"></span></p>
+                            <p><strong id="flashVersionLabel">Версія:</strong> <span id="flashVersion"></span></p>
                         </div>
                         
                         <div class="file-select-section">
-                            <p class="step-label">Крок 1: Завантажте файл прошивки</p>
+                            <p class="step-label" id="flashStep1">Крок 1: Завантажте файл прошивки</p>
                             <div class="firmware-options" id="firmwareOptions">
                                 <!-- Will be populated by JS -->
                             </div>
                             
-                            <p class="step-label">Крок 2: Виберіть завантажений файл</p>
+                            <p class="step-label" id="flashStep2">Крок 2: Виберіть завантажений файл</p>
                             <label class="file-input-label">
                                 <input type="file" id="firmwareFile" accept=".bin" onchange="onFileSelected(this)">
                                 <span class="file-input-text" id="fileInputText">📁 Вибрати .bin файл</span>
