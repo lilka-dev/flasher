@@ -703,6 +703,17 @@ footer a:hover {
     position: relative;
 }
 
+button.btn-download {
+    border: 2px solid transparent;
+    font: inherit;
+    cursor: pointer;
+}
+
+button.btn-download.selected {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35);
+}
+
 .firmware-options {
     display: flex;
     flex-wrap: wrap;

@@ -1,6 +1,8 @@
 // GitHub API configuration
 const GITHUB_REPO = 'lilka-dev/keira';
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
+// Releases bundled into the site by the deploy workflow (same-origin .bin files)
+const LOCAL_RELEASES_URL = 'firmware/releases.json';
 
 // ESP32 flash configuration
 const ESP32_FLASH_CONFIG = {
@@ -13,6 +15,8 @@ const ESP32_FLASH_CONFIG = {
 let currentFirmware = null;
 let currentVersion = null;
 let selectedFileData = null;
+let firmwareDataPromise = null;
+let isLocalFirmware = false;
 let espLoaderTerminal = null;
 let port = null;
 let isFlashing = false;
@@ -26,8 +30,8 @@ const translations = {
     instructionsTitle: '📖 Інструкція',
     instruction1: 'Підключіть Lilka до комп\'ютера через USB-кабель',
     instruction2: 'Виберіть версію прошивки зі списку нижче та натисніть "Встановити"',
-    instruction3: 'Завантажте файл прошивки (.bin) натиснувши кнопку "Завантажити"',
-    instruction4: 'Виберіть завантажений файл через "Вибрати .bin файл" (причина цієї подвійної роботи в системі безпеки браузера і GitHub)',
+    instruction3: 'Виберіть мову прошивки',
+    instruction4: 'Якщо прошивки немає на сайті — завантажте .bin файл і виберіть його через "Вибрати .bin файл"',
     instruction5: 'Натисніть "Підключити та прошити" і виберіть COM-порт',
     instruction6: 'Дочекайтеся завершення прошивки',
     instructionsNoteHtml: '<strong>Примітка:</strong> Якщо порт не з\'являється, можливо потрібно встановити драйвер CH340/CP2102. Переконайтеся, що ви використовуєте <strong>Chrome, Edge або Opera</strong> — інші браузери не підтримують Web Serial API.',
@@ -42,6 +46,8 @@ const translations = {
     versionLabel: 'Версія:',
     flashStep1: 'Крок 1: Завантажте файл прошивки',
     flashStep2: 'Крок 2: Виберіть завантажений файл',
+    flashStepChoose: 'Виберіть мову прошивки',
+    downloadingFirmware: 'Завантаження прошивки...',
     fileSelectDefault: '📁 Вибрати .bin файл',
     flashReady: 'Готово до прошивки',
     flashBtnDefault: '🔌 Підключити та прошити',
@@ -96,8 +102,8 @@ const translations = {
     instructionsTitle: '📖 Instructions',
     instruction1: 'Connect Lilka to your computer via USB cable',
     instruction2: 'Choose a firmware version below and click "Install"',
-    instruction3: 'Download the firmware file (.bin) by clicking "Download"',
-    instruction4: 'Select the downloaded file with "Choose .bin file" (this double step is required by browser and GitHub security restrictions)',
+    instruction3: 'Choose the firmware language',
+    instruction4: 'If the firmware is not hosted on this site, download the .bin file and select it with "Choose .bin file"',
     instruction5: 'Click "Connect and Flash" and select a COM port',
     instruction6: 'Wait until flashing is complete',
     instructionsNoteHtml: '<strong>Note:</strong> If no port appears, you may need CH340/CP2102 drivers. Make sure you use <strong>Chrome, Edge, or Opera</strong> — other browsers do not support Web Serial API.',
@@ -112,6 +118,8 @@ const translations = {
     versionLabel: 'Version:',
     flashStep1: 'Step 1: Download firmware file',
     flashStep2: 'Step 2: Select downloaded file',
+    flashStepChoose: 'Choose firmware language',
+    downloadingFirmware: 'Downloading firmware...',
     fileSelectDefault: '📁 Choose .bin file',
     flashReady: 'Ready to flash',
     flashBtnDefault: '🔌 Connect and Flash',
@@ -200,7 +208,7 @@ function applyTranslations() {
   setText('loadingText', 'loading');
   setText('flashModalTitle', 'modalTitle');
   setText('flashVersionLabel', 'versionLabel');
-  setText('flashStep1', 'flashStep1');
+  setText('flashStep1', isLocalFirmware ? 'flashStepChoose' : 'flashStep1');
   setText('flashStep2', 'flashStep2');
 
   const note = document.getElementById('instructionsNote');
@@ -410,6 +418,10 @@ function openFlashModal(version, firmwareList) {
   currentFirmwareOptions = firmwareList;
   currentFirmware = firmwareList[0];
   selectedFileData = null;
+  firmwareDataPromise = null;
+  // Firmware bundled by the deploy workflow can be fetched directly,
+  // otherwise the user has to download it from GitHub and select it manually
+  isLocalFirmware = firmwareList.every(fw => fw.local_url);
 
   flashVersion.textContent = version;
 
@@ -420,15 +432,31 @@ function openFlashModal(version, firmwareList) {
           .map((fw, index) => {
             const langName = getLangFromFilename(fw.name);
             const isFirst = index === 0;
+            const content = `
+        📥 ${langName}
+        <span class="file-size">${formatSize(fw.size)}</span>`;
+            if (isLocalFirmware) {
+              return `
+      <button type="button" class="btn btn-download ${
+                  isFirst ? 'selected' : ''}" onclick="selectFirmware(${
+                  index})">${content}
+      </button>
+    `;
+            }
             return `
       <a href="${fw.browser_download_url}" class="btn btn-download ${
-                isFirst ? 'recommended' : ''}" download>
-        📥 ${langName}
-        <span class="file-size">${formatSize(fw.size)}</span>
+                isFirst ? 'recommended' : ''}" download>${content}
       </a>
     `;
           })
           .join('');
+
+  setText('flashStep1', isLocalFirmware ? 'flashStepChoose' : 'flashStep1');
+  document.getElementById('flashStep2').style.display =
+      isLocalFirmware ? 'none' : '';
+  document.getElementById('fileInputLabel').style.display =
+      isLocalFirmware ? 'none' : '';
+  if (isLocalFirmware) loadLocalFirmware(currentFirmware);
 
   // Reset file input
   firmwareFileInput.value = '';
@@ -440,11 +468,38 @@ function openFlashModal(version, firmwareList) {
   flashProgress.style.display = 'none';
   updateProgress(0, t('flashReady'));
 
-  flashBtn.disabled = true;
+  flashBtn.disabled = !isLocalFirmware;
   flashBtn.textContent = t('flashBtnDefault');
   cancelBtn.textContent = t('cancel');
 
   flashModal.classList.add('active');
+}
+
+// Start fetching a bundled firmware file in the background, so the port
+// dialog can open right on click (it requires a fresh user gesture)
+function loadLocalFirmware(fw) {
+  firmwareDataPromise = fetch(fw.local_url)
+                            .then(response => {
+                              if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${
+                                    response.status}`);
+                              }
+                              return response.arrayBuffer();
+                            })
+                            .then(buffer => new Uint8Array(buffer));
+  // Errors are reported when flashing starts
+  firmwareDataPromise.catch(() => {});
+}
+
+function selectFirmware(index) {
+  if (isFlashing) return;
+
+  currentFirmware = currentFirmwareOptions[index];
+  selectedFileData = null;
+  loadLocalFirmware(currentFirmware);
+
+  document.querySelectorAll('#firmwareOptions .btn-download')
+      .forEach((btn, i) => btn.classList.toggle('selected', i === index));
 }
 
 // Handle file selection
@@ -510,6 +565,7 @@ function closeFlashModal() {
   currentFirmware = null;
   currentVersion = null;
   selectedFileData = null;
+  firmwareDataPromise = null;
 }
 
 // ESP Terminal class for esptool-js
@@ -538,7 +594,7 @@ class EspTerminal {
 
 // Start flashing process
 async function startFlash() {
-  if (!selectedFileData) {
+  if (!selectedFileData && !firmwareDataPromise) {
     alert(t('flashSelectFileFirst'));
     return;
   }
@@ -556,7 +612,6 @@ async function startFlash() {
 
   try {
     log(t('flashStart'), 'info');
-    log(t('fileSize', {size: formatSize(selectedFileData.length)}), 'info');
 
     // Step 1: Connect to serial port
     updateProgress(10, t('connectToDevice'));
@@ -566,6 +621,13 @@ async function startFlash() {
     // Don't open port manually - esptool-js Transport handles it
 
     log(t('portSelected'), 'success');
+
+    if (!selectedFileData) {
+      updateProgress(15, t('downloadingFirmware'));
+      log(t('downloadingFirmware'));
+      selectedFileData = await firmwareDataPromise;
+    }
+    log(t('fileSize', {size: formatSize(selectedFileData.length)}), 'info');
 
     // Step 2: Initialize ESP loader
     updateProgress(20, t('initEsp'));
@@ -646,6 +708,9 @@ async function startFlash() {
     console.error('Flash error:', error);
     log(t('errorPrefix', {message: error.message}), 'error');
     setProgressState('error', `❌ ${t('errorPrefix', {message: error.message})}`);
+
+    // Retry the download on the next attempt if it failed
+    if (!selectedFileData && isLocalFirmware) loadLocalFirmware(currentFirmware);
 
     flashBtn.disabled = false;
     flashBtn.textContent = t('retry');
@@ -747,15 +812,25 @@ function renderReleases() {
 }
 
 // Fetch and display releases
+async function fetchReleasesFrom(url) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function fetchReleases() {
   try {
-    const response = await fetch(GITHUB_API_URL);
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+      releasesCache = await fetchReleasesFrom(LOCAL_RELEASES_URL);
+    } catch (error) {
+      // Not deployed by the workflow (e.g. local dev) - use GitHub directly
+      console.warn('Bundled releases not available:', error);
+      releasesCache = await fetchReleasesFrom(GITHUB_API_URL);
     }
-
-    releasesCache = await response.json();
 
     loadingEl.style.display = 'none';
     renderReleases();

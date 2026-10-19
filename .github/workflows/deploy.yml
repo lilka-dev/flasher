@@ -5,6 +5,9 @@ on:
     branches:
       - main
   workflow_dispatch:
+  # Sent by lilka-dev/keira when a new release is published
+  repository_dispatch:
+    types: [keira-release]
 
 permissions:
   contents: read
@@ -14,6 +17,11 @@ permissions:
 concurrency:
   group: "pages"
   cancel-in-progress: false
+
+env:
+  KEIRA_REPO: lilka-dev/keira
+  # How many latest Keira releases to bundle into the site
+  MAX_RELEASES: 25
 
 jobs:
   deploy:
@@ -25,13 +33,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Copy site files
+        run: |
+          mkdir -p _site
+          rsync -a --exclude '.git*' --exclude '_site' ./ _site/
+
+      - name: Download Keira firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p _site/firmware
+
+          gh api "repos/$KEIRA_REPO/releases?per_page=$MAX_RELEASES" > /tmp/releases.json
+
+          # Download every .bin asset into firmware/<tag>/
+          jq -r '.[] | select(any(.assets[]; .name | endswith(".bin"))) | .tag_name' /tmp/releases.json |
+          while read -r tag; do
+            echo "Downloading $tag"
+            gh release download "$tag" -R "$KEIRA_REPO" -p '*.bin' -D "_site/firmware/$tag"
+          done
+
+          # Same JSON as the GitHub API, plus local_url for each bundled .bin
+          jq '[.[] | .tag_name as $tag | .assets |= map(
+                if (.name | endswith(".bin"))
+                then . + {local_url: "firmware/\($tag | @uri)/\(.name | @uri)"}
+                else . end)]' /tmp/releases.json > _site/firmware/releases.json
+
+          du -sh _site/firmware
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
 
       - name: Deploy to GitHub Pages
         id: deployment

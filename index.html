@@ -32,8 +32,8 @@
                 <ol>
                     <li id="instruction1">Підключіть Lilka до комп'ютера через USB-кабель</li>
                     <li id="instruction2">Виберіть версію прошивки зі списку нижче та натисніть "Встановити"</li>
-                    <li id="instruction3">Завантажте файл прошивки (.bin) натиснувши кнопку "Завантажити"</li>
-                    <li id="instruction4">Виберіть завантажений файл через "Вибрати .bin файл"(причина цієї подвійної роботи в системі безпеки браузера і GitHub)</li>
+                    <li id="instruction3">Виберіть мову прошивки</li>
+                    <li id="instruction4">Якщо прошивки немає на сайті — завантажте .bin файл і виберіть його через "Вибрати .bin файл"</li>
                     <li id="instruction5">Натисніть "Підключити та прошити" і виберіть COM-порт</li>
                     <li id="instruction6">Дочекайтеся завершення прошивки</li>
                 </ol>
@@ -87,7 +87,7 @@
                             </div>
                             
                             <p class="step-label" id="flashStep2">Крок 2: Виберіть завантажений файл</p>
-                            <label class="file-input-label">
+                            <label class="file-input-label" id="fileInputLabel">
                                 <input type="file" id="firmwareFile" accept=".bin" onchange="onFileSelected(this)">
                                 <span class="file-input-text" id="fileInputText">📁 Вибрати .bin файл</span>
                             </label>
