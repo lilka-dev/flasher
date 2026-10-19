@@ -1,1020 +1,570 @@
-// GitHub API configuration
 const GITHUB_REPO = 'lilka-dev/keira';
+const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
 // Releases bundled into the site by the deploy workflow (same-origin .bin files)
 const LOCAL_RELEASES_URL = 'firmware/releases.json';
 
-// ESP32 flash configuration
-const ESP32_FLASH_CONFIG = {
-  flashSize: '16MB',
-  flashMode: 'dio',
-  flashFreq: '80m'
-};
-
-// Current flash state
-let currentFirmware = null;
-let currentVersion = null;
-let selectedFileData = null;
-let firmwareDataPromise = null;
-let isLocalFirmware = false;
-let espLoaderTerminal = null;
-let port = null;
-let isFlashing = false;
-let releasesCache = [];
-let currentLanguage = 'uk';
+// Loaded in the background; awaited only when the device is actually needed
+const esptool = import('https://cdn.jsdelivr.net/npm/esptool-js@0.4.3/+esm');
+esptool.catch(() => {});
 
 const translations = {
   uk: {
-    pageTitle: 'Lilka Flasher - Оновлення прошивки',
-    subtitle: 'Оновлення прошивки Keira для Lilka',
-    instructionsTitle: '📖 Інструкція',
-    instruction1: 'Підключіть Lilka до комп\'ютера через USB-кабель',
-    instruction2: 'Виберіть версію прошивки зі списку нижче та натисніть "Встановити"',
-    instruction3: 'Виберіть мову прошивки',
-    instruction4: 'Якщо прошивки немає на сайті — завантажте .bin файл і виберіть його через "Вибрати .bin файл"',
-    instruction5: 'Натисніть "Підключити та прошити" і виберіть COM-порт',
-    instruction6: 'Дочекайтеся завершення прошивки',
-    instructionsNoteHtml: '<strong>Примітка:</strong> Якщо порт не з\'являється, можливо потрібно встановити драйвер CH340/CP2102. Переконайтеся, що ви використовуєте <strong>Chrome, Edge або Opera</strong> — інші браузери не підтримують Web Serial API.',
-    eraseTitle: '🗑️ Очистити пристрій',
-    eraseDescription: 'Повне стирання flash-пам\'яті ESP32. Це видалить прошивку та всі дані з пристрою.',
-    eraseBtnDefault: '🗑️ Стерти flash',
-    eraseReady: 'Готово до стирання',
-    releasesTitle: '📦 Доступні версії',
-    browserWarningDefault: '⚠️ Web Serial API підтримується тільки в Chrome, Edge та Opera. Будь ласка, використовуйте один з цих браузерів.',
+    pageTitle: 'Lilka Flasher — оновлення прошивки',
+    heroTitle: 'Прошивка Keira для Lilka',
+    subtitle: 'Встановлення прямо з браузера — без додаткових програм.',
+    step1: 'Підключіть Lilka до комп\'ютера USB-кабелем',
+    step2: 'Натисніть «Встановити» біля потрібної версії та виберіть мову',
+    step3: 'Натисніть «Підключити та прошити», виберіть порт і дочекайтеся завершення',
+    note: 'Потрібен <strong>Chrome, Edge або Opera</strong>. Якщо порт не з\'являється — встановіть драйвер CH340/CP2102.',
+    releasesTitle: 'Доступні версії',
     loading: 'Завантаження релізів...',
-    modalTitle: '⚡ Прошивка Lilka',
-    versionLabel: 'Версія:',
-    flashStep1: 'Крок 1: Завантажте файл прошивки',
-    flashStep2: 'Крок 2: Виберіть завантажений файл',
-    flashStepChoose: 'Виберіть мову прошивки',
-    downloadingFirmware: 'Завантаження прошивки...',
+    latestVersionBadge: 'Остання',
+    install: 'Встановити',
+    changes: 'Що нового',
+    noBinary: 'Немає .bin',
+    unsupported: 'Браузер не підтримується',
+    noReleases: 'Релізів поки немає. Перевірте {link}.',
+    loadReleasesError: 'Помилка завантаження релізів: {message}. Спробуйте {link}.',
+    githubLink: 'GitHub',
+    eraseTitle: 'Очистити пристрій',
+    eraseDescription: 'Повне стирання flash-пам\'яті ESP32. Видалить прошивку та всі дані.',
+    eraseBtn: 'Стерти flash',
+    eraseConfirm: 'Ви впевнені? Це повністю зітре flash-пам\'ять пристрою!',
+    erasingFlash: 'Стирання flash-пам\'яті... Це може зайняти деякий час.',
+    eraseSuccess: '✅ Flash-пам\'ять успішно стерто!',
+    modalTitle: 'Прошивка',
+    chooseLanguage: 'Мова прошивки',
+    manualStep1: 'Крок 1: завантажте файл прошивки',
+    manualStep2: 'Крок 2: виберіть завантажений файл',
     fileSelectDefault: '📁 Вибрати .bin файл',
-    flashReady: 'Готово до прошивки',
-    flashBtnDefault: '🔌 Підключити та прошити',
-    cancel: 'Скасувати',
-    serialNeedHttps: '⚠️ Web Serial API потребує HTTPS або localhost. Поточний протокол: {protocol}',
-    serialUnsupported: '⚠️ Ваш браузер не підтримує Web Serial API. Використовуйте Chrome 89+, Edge 89+ або Opera 75+.',
     fileMustBeBin: 'Будь ласка, виберіть файл з розширенням .bin',
-    fileReadError: 'Помилка читання файлу',
+    flashBtn: 'Підключити та прошити',
+    cancel: 'Скасувати',
+    close: 'Закрити',
+    retry: 'Спробувати знову',
+    busy: 'Зачекайте...',
     flashingInProgressConfirm: 'Прошивка в процесі. Ви впевнені, що хочете скасувати?',
-    flashSelectFileFirst: 'Помилка: спочатку виберіть файл прошивки',
-    flashInProgress: 'Прошивка...',
-    flashStart: '=== Початок прошивки ===',
-    fileSize: 'Розмір файлу: {size}',
-    connectToDevice: 'Підключення до пристрою...',
+    serialNeedHttps: '⚠️ Web Serial API потребує HTTPS або localhost. Поточний протокол: {protocol}',
+    serialUnsupported: '⚠️ Ваш браузер не підтримує Web Serial API. Використовуйте Chrome, Edge або Opera.',
     selectComPort: 'Виберіть COM-порт у діалоговому вікні...',
-    portSelected: 'Порт вибрано!',
-    initEsp: 'Ініціалізація ESP32...',
-    esptoolNotLoaded: 'ESPTool не завантажено. Будь ласка, оновіть сторінку.',
-    bootloaderMode: 'Перехід в режим завантажувача...',
+    downloadingFirmware: 'Завантаження прошивки...',
+    fileSize: 'Розмір файлу: {size}',
+    initEsp: 'Підключення до ESP32...',
+    esptoolNotLoaded: 'ESPTool не завантажено. Оновіть сторінку.',
     chipDetected: 'Виявлено чіп: {chip}',
-    preparingWrite: 'Підготовка до запису...',
-    writingFirmware: 'Запис прошивки...',
     writingProgress: 'Запис: {written} / {total}',
     restartingDevice: 'Перезапуск пристрою...',
     flashSuccess: '✅ Прошивка успішно завершена!',
-    flashDoneLog: '=== Прошивка успішно завершена! ===',
-    done: '✅ Готово!',
-    close: 'Закрити',
-    retry: '🔄 Спробувати знову',
-    errorPrefix: 'Помилка: {message}',
-    install: '⚡ Встановити',
-    browserNotSupported: 'Браузер не підтримується',
-    browserNoWebSerialTitle: 'Браузер не підтримує Web Serial',
-    binaryNotFound: 'Бінарний файл не знайдено',
-    latestVersionBadge: 'Остання версія',
-    noReleases: 'Релізів поки немає. Перевірте {link}.',
-    githubRepo: 'GitHub репозиторій',
-    loadReleasesError: 'Помилка завантаження релізів: {message}',
-    openGithubDirectly: 'відкрити GitHub напряму',
-    tryOpenDirectly: 'Спробуйте {link}.',
-    eraseConfirm: 'Ви впевнені? Це повністю зітре flash-пам\'ять пристрою!',
-    erasing: 'Стирання...',
-    erasingFlash: 'Стирання flash-пам\'яті...',
-    erasingMayTakeTime: 'Стирання flash-пам\'яті... Це може зайняти деякий час.',
-    eraseSuccess: '✅ Flash-пам\'ять успішно стерто!',
-    eraseSuccessLog: '=== Flash-пам\'ять успішно стерто! ===',
-    fileSelected: 'Файл вибрано: {name} ({size})'
+    errorPrefix: '❌ Помилка: {message}'
   },
   en: {
-    pageTitle: 'Lilka Flasher - Firmware Update',
-    subtitle: 'Keira firmware update for Lilka',
-    instructionsTitle: '📖 Instructions',
-    instruction1: 'Connect Lilka to your computer via USB cable',
-    instruction2: 'Choose a firmware version below and click "Install"',
-    instruction3: 'Choose the firmware language',
-    instruction4: 'If the firmware is not hosted on this site, download the .bin file and select it with "Choose .bin file"',
-    instruction5: 'Click "Connect and Flash" and select a COM port',
-    instruction6: 'Wait until flashing is complete',
-    instructionsNoteHtml: '<strong>Note:</strong> If no port appears, you may need CH340/CP2102 drivers. Make sure you use <strong>Chrome, Edge, or Opera</strong> — other browsers do not support Web Serial API.',
-    eraseTitle: '🗑️ Erase device',
-    eraseDescription: 'Full erase of ESP32 flash memory. This will remove firmware and all data from the device.',
-    eraseBtnDefault: '🗑️ Erase flash',
-    eraseReady: 'Ready to erase',
-    releasesTitle: '📦 Available versions',
-    browserWarningDefault: '⚠️ Web Serial API is supported only in Chrome, Edge, and Opera. Please use one of these browsers.',
+    pageTitle: 'Lilka Flasher — firmware update',
+    heroTitle: 'Keira firmware for Lilka',
+    subtitle: 'Install right from your browser — no extra software needed.',
+    step1: 'Connect Lilka to your computer with a USB cable',
+    step2: 'Click "Install" next to a version and choose a language',
+    step3: 'Click "Connect and flash", pick the port and wait until it finishes',
+    note: 'Requires <strong>Chrome, Edge or Opera</strong>. If no port shows up, install the CH340/CP2102 driver.',
+    releasesTitle: 'Available versions',
     loading: 'Loading releases...',
-    modalTitle: '⚡ Flash Lilka',
-    versionLabel: 'Version:',
-    flashStep1: 'Step 1: Download firmware file',
-    flashStep2: 'Step 2: Select downloaded file',
-    flashStepChoose: 'Choose firmware language',
-    downloadingFirmware: 'Downloading firmware...',
+    latestVersionBadge: 'Latest',
+    install: 'Install',
+    changes: 'What\'s new',
+    noBinary: 'No .bin',
+    unsupported: 'Browser not supported',
+    noReleases: 'No releases yet. Check {link}.',
+    loadReleasesError: 'Failed to load releases: {message}. Try {link}.',
+    githubLink: 'GitHub',
+    eraseTitle: 'Erase device',
+    eraseDescription: 'Full erase of the ESP32 flash. Removes the firmware and all data.',
+    eraseBtn: 'Erase flash',
+    eraseConfirm: 'Are you sure? This will completely erase the device flash memory!',
+    erasingFlash: 'Erasing flash memory... This may take a while.',
+    eraseSuccess: '✅ Flash memory erased successfully!',
+    modalTitle: 'Flash',
+    chooseLanguage: 'Firmware language',
+    manualStep1: 'Step 1: download the firmware file',
+    manualStep2: 'Step 2: select the downloaded file',
     fileSelectDefault: '📁 Choose .bin file',
-    flashReady: 'Ready to flash',
-    flashBtnDefault: '🔌 Connect and Flash',
-    cancel: 'Cancel',
-    serialNeedHttps: '⚠️ Web Serial API requires HTTPS or localhost. Current protocol: {protocol}',
-    serialUnsupported: '⚠️ Your browser does not support Web Serial API. Use Chrome 89+, Edge 89+, or Opera 75+.',
     fileMustBeBin: 'Please choose a file with .bin extension',
-    fileReadError: 'File read error',
+    flashBtn: 'Connect and flash',
+    cancel: 'Cancel',
+    close: 'Close',
+    retry: 'Try again',
+    busy: 'Please wait...',
     flashingInProgressConfirm: 'Flashing is in progress. Are you sure you want to cancel?',
-    flashSelectFileFirst: 'Error: select firmware file first',
-    flashInProgress: 'Flashing...',
-    flashStart: '=== Flashing started ===',
+    serialNeedHttps: '⚠️ Web Serial API requires HTTPS or localhost. Current protocol: {protocol}',
+    serialUnsupported: '⚠️ Your browser does not support Web Serial API. Use Chrome, Edge or Opera.',
+    selectComPort: 'Select the COM port in the dialog...',
+    downloadingFirmware: 'Downloading firmware...',
     fileSize: 'File size: {size}',
-    connectToDevice: 'Connecting to device...',
-    selectComPort: 'Select COM port in the dialog...',
-    portSelected: 'Port selected!',
-    initEsp: 'Initializing ESP32...',
+    initEsp: 'Connecting to ESP32...',
     esptoolNotLoaded: 'ESPTool not loaded. Please refresh the page.',
-    bootloaderMode: 'Switching to bootloader mode...',
     chipDetected: 'Chip detected: {chip}',
-    preparingWrite: 'Preparing to write...',
-    writingFirmware: 'Writing firmware...',
     writingProgress: 'Writing: {written} / {total}',
     restartingDevice: 'Restarting device...',
     flashSuccess: '✅ Flashing completed successfully!',
-    flashDoneLog: '=== Flashing completed successfully! ===',
-    done: '✅ Done!',
-    close: 'Close',
-    retry: '🔄 Try again',
-    errorPrefix: 'Error: {message}',
-    install: '⚡ Install',
-    browserNotSupported: 'Browser not supported',
-    browserNoWebSerialTitle: 'Browser does not support Web Serial',
-    binaryNotFound: 'Binary file not found',
-    latestVersionBadge: 'Latest version',
-    noReleases: 'No releases yet. Check {link}.',
-    githubRepo: 'GitHub repository',
-    loadReleasesError: 'Failed to load releases: {message}',
-    openGithubDirectly: 'open GitHub directly',
-    tryOpenDirectly: 'Try to {link}.',
-    eraseConfirm: 'Are you sure? This will completely erase device flash memory!',
-    erasing: 'Erasing...',
-    erasingFlash: 'Erasing flash memory...',
-    erasingMayTakeTime: 'Erasing flash memory... This may take some time.',
-    eraseSuccess: '✅ Flash memory erased successfully!',
-    eraseSuccessLog: '=== Flash memory erased successfully! ===',
-    fileSelected: 'File selected: {name} ({size})'
+    errorPrefix: '❌ Error: {message}'
   }
 };
 
+const LANG_FLAGS = {UK: '🇺🇦', UA: '🇺🇦', EN: '🇬🇧', DE: '🇩🇪', PL: '🇵🇱', ES: '🇪🇸', FR: '🇫🇷'};
+
+let currentLanguage = 'uk';
+let releases = [];
+let busy = false;  // a serial operation is running
+
+// Flash modal state
+let firmwareOptions = [];
+let selectedFirmware = null;
+let firmwareData = null;  // Promise<Uint8Array> | null
+let isLocalFirmware = false;
+
+const $ = id => document.getElementById(id);
+const releasesList = $('releasesList');
+const flashModal = $('flashModal');
+const flashBtn = $('flashBtn');
+const cancelBtn = $('cancelBtn');
+const eraseBtn = $('eraseBtn');
+const fileInput = $('firmwareFile');
+const fileInputText = $('fileInputText');
+
+// --- i18n ---
+
 function t(key, vars = {}) {
-  const dict = translations[currentLanguage] || translations.uk;
-  const fallback = translations.uk[key] || key;
-  const template = dict[key] || fallback;
+  const template = translations[currentLanguage][key] ?? translations.uk[key] ?? key;
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
-}
-
-function setText(id, key) {
-  const element = document.getElementById(id);
-  if (element) element.textContent = t(key);
-}
-
-function updateLanguageButtons() {
-  const ukBtn = document.getElementById('langUkBtn');
-  const enBtn = document.getElementById('langEnBtn');
-  if (ukBtn) ukBtn.classList.toggle('active', currentLanguage === 'uk');
-  if (enBtn) enBtn.classList.toggle('active', currentLanguage === 'en');
 }
 
 function applyTranslations() {
   document.title = t('pageTitle');
   document.documentElement.lang = currentLanguage;
+  document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = t(el.dataset.i18n));
+  document.querySelectorAll('[data-i18n-html]').forEach(el => el.innerHTML = t(el.dataset.i18nHtml));
+  document.querySelectorAll('.lang-btn').forEach(
+      btn => btn.classList.toggle('active', btn.dataset.lang === currentLanguage));
 
-  setText('subtitleText', 'subtitle');
-  setText('instructionsTitle', 'instructionsTitle');
-  setText('instruction1', 'instruction1');
-  setText('instruction2', 'instruction2');
-  setText('instruction3', 'instruction3');
-  setText('instruction4', 'instruction4');
-  setText('instruction5', 'instruction5');
-  setText('instruction6', 'instruction6');
-  setText('eraseTitle', 'eraseTitle');
-  setText('eraseDescription', 'eraseDescription');
-  setText('releasesTitle', 'releasesTitle');
-  setText('browserWarningText', 'browserWarningDefault');
-  setText('loadingText', 'loading');
-  setText('flashModalTitle', 'modalTitle');
-  setText('flashVersionLabel', 'versionLabel');
-  setText('flashStep1', isLocalFirmware ? 'flashStepChoose' : 'flashStep1');
-  setText('flashStep2', 'flashStep2');
-
-  const note = document.getElementById('instructionsNote');
-  if (note) note.innerHTML = t('instructionsNoteHtml');
-
-  if (!selectedFileData) {
-    fileInputText.textContent = t('fileSelectDefault');
-  }
-
-  if (!isFlashing) {
-    flashBtn.textContent = t('flashBtnDefault');
+  if (!busy) {
+    flashBtn.textContent = t('flashBtn');
     cancelBtn.textContent = t('cancel');
   }
+  if (!fileInput.files.length) fileInputText.textContent = t('fileSelectDefault');
+  if (flashModal.open) renderFirmwareOptions();
 
-  const eraseBtn = document.getElementById('eraseBtn');
-  if (eraseBtn && eraseBtn.textContent !== t('erasing')) {
-    eraseBtn.textContent = t('eraseBtnDefault');
-  }
-
-  const eraseProgressText = document.getElementById('eraseProgressText');
-  if (eraseProgressText && !eraseProgressText.textContent.includes('✅') &&
-      !eraseProgressText.textContent.includes('❌')) {
-    eraseProgressText.textContent = t('eraseReady');
-  }
-
-  updateLanguageButtons();
-
-  if (releasesCache.length > 0) {
-    renderReleases();
-  }
+  checkWebSerialSupport();
+  if (releases.length) renderReleases();
 }
 
 function setLanguage(lang) {
   if (!translations[lang]) return;
   currentLanguage = lang;
-  localStorage.setItem('siteLanguage', lang);
+  try { localStorage.setItem('siteLanguage', lang); } catch {}
   applyTranslations();
-  checkWebSerialSupport();
 }
 
-window.setLanguage = setLanguage;
+// --- Helpers ---
 
-// DOM elements
-const releasesList = document.getElementById('releasesList');
-const loadingEl = document.getElementById('loading');
-const browserWarning = document.getElementById('browserWarning');
-const flashModal = document.getElementById('flashModal');
-const flashVersion = document.getElementById('flashVersion');
-const downloadLink = document.getElementById('downloadLink');
-const downloadFileName = document.getElementById('downloadFileName');
-const firmwareFileInput = document.getElementById('firmwareFile');
-const fileInputText = document.getElementById('fileInputText');
-const progressFill = document.getElementById('progressFill');
-const progressText = document.getElementById('progressText');
-const flashProgress = document.getElementById('flashProgress');
-const flashLog = document.getElementById('flashLog');
-const flashBtn = document.getElementById('flashBtn');
-const cancelBtn = document.getElementById('cancelBtn');
+function hasWebSerial() {
+  return window.isSecureContext && 'serial' in navigator;
+}
 
-// Check Web Serial API support
 function checkWebSerialSupport() {
-  const isSecureContext = window.isSecureContext;
-  const hasSerial = 'serial' in navigator;
-
-  console.log('Secure context:', isSecureContext);
-  console.log('Has serial:', hasSerial);
-  console.log('Protocol:', window.location.protocol);
-
-  if (!isSecureContext) {
-    browserWarning.innerHTML =
-        `<p>${t('serialNeedHttps', {protocol: window.location.protocol})}</p>`;
-    browserWarning.style.display = 'block';
-    return false;
+  const warning = $('browserWarning');
+  if (!window.isSecureContext) {
+    warning.textContent = t('serialNeedHttps', {protocol: location.protocol});
+  } else if (!('serial' in navigator)) {
+    warning.textContent = t('serialUnsupported');
   }
-
-  if (!hasSerial) {
-    browserWarning.innerHTML = `<p>${t('serialUnsupported')}</p>`;
-    browserWarning.style.display = 'block';
-    return false;
-  }
-
-  browserWarning.style.display = 'none';
-
-  return true;
+  warning.hidden = hasWebSerial();
 }
 
-// Format date by selected locale
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+}
+
 function formatDate(dateString) {
-  const date = new Date(dateString);
-  const locale = currentLanguage === 'en' ? 'en-US' : 'uk-UA';
-  return date.toLocaleDateString(locale, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  return new Date(dateString).toLocaleDateString(
+      currentLanguage === 'en' ? 'en-US' : 'uk-UA',
+      {year: 'numeric', month: 'long', day: 'numeric'});
 }
 
-// Format file size
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-// Parse release body (markdown) to simple text
-function parseMarkdown(text) {
-  if (!text) return '';
-  return text.replace(/#{1,6}\s/g, '')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/`(.*?)`/g, '<code>$1</code>')
-      .replace(/\n/g, '<br>')
-      .substring(0, 500);
+// GitHub release notes -> safe HTML: bullet lists, links shortened to "#123"
+function renderNotes(markdown) {
+  let html = '';
+  let inList = false;
+  for (const raw of markdown.split(/\r?\n/)) {
+    const line = raw.trim();
+    const item = line.match(/^[*-]\s+(.*)/);
+    if (item && !inList) html += '<ul>';
+    if (!item && inList) html += '</ul>';
+    inList = !!item;
+    if (!line) continue;
+
+    const text = escapeHtml((item ? item[1] : line).replace(/^#+\s*/, ''))
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/https:\/\/\S+/g, url => {
+          const issue = url.match(/\/(?:pull|issues)\/(\d+)$/);
+          return `<a href="${url}" target="_blank" rel="noopener">${issue ? '#' + issue[1] : url}</a>`;
+        });
+    html += item ? `<li>${text}</li>` : `<p>${text}</p>`;
+  }
+  return inList ? html + '</ul>' : html;
 }
 
-// Find firmware binary in release assets
-function findFirmwareBinary(assets) {
-  // Priority: merged binary > firmware.bin > any .bin
-  const priorities = [
-    a => a.name.toLowerCase().includes('merged') && a.name.endsWith('.bin'),
-    a => a.name.toLowerCase() === 'firmware.bin',
-    a => a.name.toLowerCase().includes('keira') && a.name.endsWith('.bin'),
-    a => a.name.endsWith('.bin') && !a.name.includes('bootloader') &&
-        !a.name.includes('partition')
-  ];
+// Merged images (bootloader + partitions + app) can be written at 0x0
+function findFirmware(assets) {
+  const bins = assets.filter(a => a.name.endsWith('.bin'));
+  const merged = bins.filter(a => a.name.toLowerCase().includes('merged'));
+  return merged.length ? merged :
+      bins.filter(a => !/bootloader|partition/i.test(a.name));
+}
 
-  for (const check of priorities) {
-    const found = assets.find(check);
-    if (found) return found;
+function firmwareLabel(filename) {
+  const code = filename.match(/LANG_([A-Z]+)/i)?.[1].toUpperCase();
+  if (!code) return filename;
+  let name = code;
+  try {
+    name = new Intl.DisplayNames([currentLanguage], {type: 'language'})
+        .of(code === 'UA' ? 'uk' : code.toLowerCase());
+    name = name[0].toUpperCase() + name.slice(1);
+  } catch {}
+  return `${LANG_FLAGS[code] ?? '🌐'} ${name}`;
+}
+
+// esptool-js 0.4 takes firmware as a binary string
+function toBinaryString(bytes) {
+  let result = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    result += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return result;
+}
+
+// --- Progress + log block (shared by flash and erase) ---
+
+function createTask(root) {
+  const fill = root.querySelector('.progress-fill');
+  const text = root.querySelector('.progress-text');
+  const logEl = root.querySelector('.flash-log');
+
+  function log(message, type = '') {
+    const p = document.createElement('p');
+    p.textContent = message;
+    p.className = type && `log-${type}`;
+    logEl.appendChild(p);
+    logEl.scrollTop = logEl.scrollHeight;
   }
 
-  return assets.find(a => a.name.endsWith('.bin'));
+  return {
+    log,
+    reset() {
+      root.hidden = false;
+      logEl.replaceChildren();
+      this.progress(0, '');
+    },
+    hide() { root.hidden = true; },
+    progress(percent, message, state = '') {
+      fill.style.width = `${percent}%`;
+      text.textContent = message;
+      text.className = `progress-text ${state}`;
+    },
+    step(percent, message) {
+      this.progress(percent, message);
+      log(message);
+    },
+    // Output sink for esptool-js
+    terminal: {
+      clean() {},
+      writeLine: data => log(data),
+      write(data) {
+        const last = logEl.lastElementChild;
+        if (last) last.textContent += data; else log(data);
+      }
+    }
+  };
 }
 
-// Find all merged firmware files (different languages)
-function findAllMergedFirmware(assets) {
-  const merged = assets.filter(
-      a => a.name.toLowerCase().includes('merged') && a.name.endsWith('.bin'));
+const flashTask = createTask($('flashTask'));
+const eraseTask = createTask($('eraseTask'));
 
-  if (merged.length > 0) return merged;
-
-  // Fallback to any .bin file
-  return assets.filter(
-      a => a.name.endsWith('.bin') && !a.name.includes('bootloader') &&
-          !a.name.includes('partition'));
-}
-
-// Get language name from filename
-function getLangFromFilename(filename) {
-  const match = filename.match(/LANG_(\w+)/i);
-  if (match) {
-    const lang = match[1].toUpperCase();
-    const langNames = currentLanguage === 'en' ? {
-      'UK': '🇺🇦 Ukrainian',
-      'UA': '🇺🇦 Ukrainian',
-      'EN': '🇬🇧 English',
-      'DE': '🇩🇪 German',
-      'PL': '🇵🇱 Polish',
-      'ES': '🇪🇸 Spanish',
-      'FR': '🇫🇷 French',
-    } : {
-      'UK': '🇺🇦 Українська',
-      'UA': '🇺🇦 Українська',
-      'EN': '🇬🇧 English',
-      'DE': '🇩🇪 Deutsch',
-      'PL': '🇵🇱 Polski',
-      'ES': '🇪🇸 Español',
-      'FR': '🇫🇷 Français',
-    };
-    return langNames[lang] || lang;
+// Asks for a port and connects to the chip. Must be called from a click handler.
+async function withDevice(task, action) {
+  if (!hasWebSerial()) {
+    alert(t('serialUnsupported'));
+    return false;
   }
-  return filename;
-}
 
-// Logging functions
-function log(message, type = 'info') {
-  const p = document.createElement('p');
-  p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-  p.className = `log-${type}`;
-  flashLog.appendChild(p);
-  flashLog.scrollTop = flashLog.scrollHeight;
-  console.log(`[${type}] ${message}`);
-}
+  busy = true;
+  let transport = null;
+  try {
+    task.log(t('selectComPort'));
+    const port = await navigator.serial.requestPort();
 
-function clearLog() {
-  flashLog.innerHTML = '';
-}
+    task.step(10, t('initEsp'));
+    const {ESPLoader, Transport} = await esptool.catch(() => {
+      throw new Error(t('esptoolNotLoaded'));
+    });
+    transport = new Transport(port);
+    const loader = new ESPLoader({
+      transport,
+      baudrate: 115200,
+      romBaudrate: 115200,
+      terminal: task.terminal
+    });
+    await loader.main();
+    task.log(t('chipDetected', {chip: loader.chipName}), 'success');
 
-function updateProgress(percent, text) {
-  progressFill.style.width = `${percent}%`;
-  if (text) {
-    progressText.textContent = text;
-    progressText.className = 'progress-text';
+    await action(loader);
+
+    task.step(95, t('restartingDevice'));
+    await loader.hardReset();
+    return true;
+  } catch (error) {
+    console.error(error);
+    const message = t('errorPrefix', {message: error.message});
+    task.log(message, 'error');
+    task.progress(100, message, 'error');
+    return false;
+  } finally {
+    busy = false;
+    try { await transport?.disconnect(); } catch {}
   }
 }
 
-function setProgressState(state, text) {
-  progressText.textContent = text;
-  progressText.className = `progress-text ${state}`;
+// --- Releases ---
+
+function renderReleases() {
+  if (!releases.length) {
+    releasesList.innerHTML = `<div class="alert alert-error">${
+        t('noReleases', {link: `<a href="${GITHUB_RELEASES_URL}" target="_blank">${t('githubLink')}</a>`})}</div>`;
+    return;
+  }
+
+  releasesList.innerHTML = releases.map((release, index) => {
+    const canInstall = findFirmware(release.assets).length > 0;
+    const disabledText = !canInstall ? t('noBinary') : !hasWebSerial() ? t('unsupported') : '';
+    const button = disabledText ?
+        `<button class="btn btn-primary btn-sm" disabled>${disabledText}</button>` :
+        `<button class="btn btn-primary btn-sm" data-install="${index}">⚡ ${t('install')}</button>`;
+    const notes = release.body ?
+        `<details class="release-notes"${index === 0 ? ' open' : ''}>
+           <summary>${t('changes')}</summary>
+           <div class="release-body">${renderNotes(release.body)}</div>
+         </details>` : '';
+
+    return `
+      <article class="release-card${index === 0 ? ' latest' : ''}">
+        <div class="release-header">
+          <div class="release-info">
+            <h3>
+              <a href="${escapeHtml(release.html_url)}" target="_blank" rel="noopener">${escapeHtml(release.name || release.tag_name)}</a>
+              ${index === 0 ? `<span class="badge">${t('latestVersionBadge')}</span>` : ''}
+            </h3>
+            <span class="release-date">${formatDate(release.published_at)}</span>
+          </div>
+          ${button}
+        </div>
+        ${notes}
+      </article>`;
+  }).join('');
 }
 
-// Modal functions
-let currentFirmwareOptions = [];
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
 
-function openFlashModal(version, firmwareList) {
-  currentVersion = version;
-  currentFirmwareOptions = firmwareList;
-  currentFirmware = firmwareList[0];
-  selectedFileData = null;
-  firmwareDataPromise = null;
+async function loadReleases() {
+  try {
+    try {
+      releases = await fetchJson(LOCAL_RELEASES_URL);
+    } catch {
+      // Not deployed by the workflow (e.g. local dev) - use GitHub directly
+      releases = await fetchJson(GITHUB_API_URL);
+    }
+    renderReleases();
+  } catch (error) {
+    releasesList.innerHTML = `<div class="alert alert-error">${t('loadReleasesError', {
+      message: escapeHtml(error.message),
+      link: `<a href="${GITHUB_RELEASES_URL}" target="_blank">${t('githubLink')}</a>`
+    })}</div>`;
+  } finally {
+    $('loading').hidden = true;
+  }
+}
+
+// --- Flash modal ---
+
+function renderFirmwareOptions() {
+  $('firmwareLabel').textContent = t(isLocalFirmware ? 'chooseLanguage' : 'manualStep1');
+  $('firmwareOptions').innerHTML = firmwareOptions.map((fw, index) => {
+    const content = `<span>${firmwareLabel(fw.name)}</span><small>${formatSize(fw.size)}</small>`;
+    return isLocalFirmware ?
+        `<button type="button" class="fw-option${fw === selectedFirmware ? ' selected' : ''}" data-firmware="${index}">${content}</button>` :
+        `<a class="fw-option" href="${escapeHtml(fw.browser_download_url)}" download>📥 ${content}</a>`;
+  }).join('');
+}
+
+// Fetch bundled firmware in the background, so the port dialog can open
+// right on click (it requires a fresh user gesture)
+function selectFirmware(fw) {
+  selectedFirmware = fw;
+  firmwareData = fetch(fw.local_url)
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(buffer => new Uint8Array(buffer));
+  firmwareData.catch(() => {});  // reported when flashing starts
+  renderFirmwareOptions();
+}
+
+function openFlashModal(release) {
+  firmwareOptions = findFirmware(release.assets);
   // Firmware bundled by the deploy workflow can be fetched directly,
   // otherwise the user has to download it from GitHub and select it manually
-  isLocalFirmware = firmwareList.every(fw => fw.local_url);
+  isLocalFirmware = firmwareOptions.every(fw => fw.local_url);
+  firmwareData = null;
 
-  flashVersion.textContent = version;
-
-  // Build firmware options HTML
-  const firmwareOptionsEl = document.getElementById('firmwareOptions');
-  firmwareOptionsEl.innerHTML =
-      firmwareList
-          .map((fw, index) => {
-            const langName = getLangFromFilename(fw.name);
-            const isFirst = index === 0;
-            const content = `
-        📥 ${langName}
-        <span class="file-size">${formatSize(fw.size)}</span>`;
-            if (isLocalFirmware) {
-              return `
-      <button type="button" class="btn btn-download ${
-                  isFirst ? 'selected' : ''}" onclick="selectFirmware(${
-                  index})">${content}
-      </button>
-    `;
-            }
-            return `
-      <a href="${fw.browser_download_url}" class="btn btn-download ${
-                isFirst ? 'recommended' : ''}" download>${content}
-      </a>
-    `;
-          })
-          .join('');
-
-  setText('flashStep1', isLocalFirmware ? 'flashStepChoose' : 'flashStep1');
-  document.getElementById('flashStep2').style.display =
-      isLocalFirmware ? 'none' : '';
-  document.getElementById('fileInputLabel').style.display =
-      isLocalFirmware ? 'none' : '';
-  if (isLocalFirmware) loadLocalFirmware(currentFirmware);
-
-  // Reset file input
-  firmwareFileInput.value = '';
+  $('flashVersion').textContent = release.tag_name;
+  $('manualFile').hidden = isLocalFirmware;
+  fileInput.value = '';
   fileInputText.textContent = t('fileSelectDefault');
-  fileInputText.classList.remove('selected');
+  fileInputText.parentElement.classList.remove('selected');
+  flashTask.hide();
 
-  clearLog();
-  flashLog.classList.remove('active');
-  flashProgress.style.display = 'none';
-  updateProgress(0, t('flashReady'));
+  if (isLocalFirmware) selectFirmware(firmwareOptions[0]);
+  else renderFirmwareOptions();
 
   flashBtn.disabled = !isLocalFirmware;
-  flashBtn.textContent = t('flashBtnDefault');
+  flashBtn.textContent = t('flashBtn');
   cancelBtn.textContent = t('cancel');
-
-  flashModal.classList.add('active');
-}
-
-// Start fetching a bundled firmware file in the background, so the port
-// dialog can open right on click (it requires a fresh user gesture)
-function loadLocalFirmware(fw) {
-  firmwareDataPromise = fetch(fw.local_url)
-                            .then(response => {
-                              if (!response.ok) {
-                                throw new Error(`HTTP error! status: ${
-                                    response.status}`);
-                              }
-                              return response.arrayBuffer();
-                            })
-                            .then(buffer => new Uint8Array(buffer));
-  // Errors are reported when flashing starts
-  firmwareDataPromise.catch(() => {});
-}
-
-function selectFirmware(index) {
-  if (isFlashing) return;
-
-  currentFirmware = currentFirmwareOptions[index];
-  selectedFileData = null;
-  loadLocalFirmware(currentFirmware);
-
-  document.querySelectorAll('#firmwareOptions .btn-download')
-      .forEach((btn, i) => btn.classList.toggle('selected', i === index));
-}
-
-// Handle file selection
-function onFileSelected(input) {
-  const file = input.files[0];
-  if (!file) {
-    selectedFileData = null;
-    fileInputText.textContent = t('fileSelectDefault');
-    fileInputText.classList.remove('selected');
-    flashBtn.disabled = true;
-    return;
-  }
-
-  if (!file.name.endsWith('.bin')) {
-    alert(t('fileMustBeBin'));
-    input.value = '';
-    return;
-  }
-
-  fileInputText.textContent = `✅ ${file.name}`;
-  fileInputText.classList.add('selected');
-
-  // Read file
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    selectedFileData = new Uint8Array(e.target.result);
-    flashBtn.disabled = false;
-    log(
-        t(
-            'fileSelected',
-            {name: file.name, size: formatSize(selectedFileData.length)}),
-        'success');
-    flashLog.classList.add('active');
-  };
-  reader.onerror = () => {
-    alert(t('fileReadError'));
-    selectedFileData = null;
-    flashBtn.disabled = true;
-  };
-  reader.readAsArrayBuffer(file);
+  flashModal.showModal();
 }
 
 function closeFlashModal() {
-  if (isFlashing) {
-    if (!confirm(t('flashingInProgressConfirm'))) {
-      return;
-    }
-  }
-
-  flashModal.classList.remove('active');
-
-  // Disconnect port if connected
-  if (port) {
-    try {
-      port.close();
-    } catch (e) {
-      console.error('Error closing port:', e);
-    }
-    port = null;
-  }
-
-  isFlashing = false;
-  currentFirmware = null;
-  currentVersion = null;
-  selectedFileData = null;
-  firmwareDataPromise = null;
+  if (busy && !confirm(t('flashingInProgressConfirm'))) return;
+  flashModal.close();
 }
 
-// ESP Terminal class for esptool-js
-class EspTerminal {
-  clean() {
-    // Clear terminal
+function onFileSelected() {
+  const file = fileInput.files[0];
+  fileInputText.parentElement.classList.toggle('selected', !!file);
+  flashBtn.disabled = !file;
+  firmwareData = null;
+  if (!file) {
+    fileInputText.textContent = t('fileSelectDefault');
+    return;
   }
-
-  writeLine(data) {
-    log(data);
+  if (!file.name.endsWith('.bin')) {
+    alert(t('fileMustBeBin'));
+    fileInput.value = '';
+    onFileSelected();
+    return;
   }
-
-  write(data) {
-    // For continuous output
-    const lastP = flashLog.lastElementChild;
-    if (lastP && !lastP.textContent.includes('[')) {
-      lastP.textContent += data;
-    } else {
-      const p = document.createElement('p');
-      p.textContent = data;
-      flashLog.appendChild(p);
-    }
-    flashLog.scrollTop = flashLog.scrollHeight;
-  }
+  fileInputText.textContent = `✅ ${file.name} (${formatSize(file.size)})`;
+  firmwareData = file.arrayBuffer().then(buffer => new Uint8Array(buffer));
 }
 
-// Start flashing process
 async function startFlash() {
-  if (!selectedFileData && !firmwareDataPromise) {
-    alert(t('flashSelectFileFirst'));
-    return;
-  }
-
-  if (!('serial' in navigator)) {
-    alert(t('serialUnsupported'));
-    return;
-  }
-
-  isFlashing = true;
+  if (busy || !firmwareData) return;
   flashBtn.disabled = true;
-  flashBtn.textContent = t('flashInProgress');
-  flashLog.classList.add('active');
-  flashProgress.style.display = 'block';
+  flashBtn.textContent = t('busy');
+  flashTask.reset();
 
-  try {
-    log(t('flashStart'), 'info');
+  const ok = await withDevice(flashTask, async loader => {
+    flashTask.step(15, t('downloadingFirmware'));
+    const data = await firmwareData;
+    flashTask.log(t('fileSize', {size: formatSize(data.length)}));
 
-    // Step 1: Connect to serial port
-    updateProgress(10, t('connectToDevice'));
-    log(t('selectComPort'));
-
-    port = await navigator.serial.requestPort();
-    // Don't open port manually - esptool-js Transport handles it
-
-    log(t('portSelected'), 'success');
-
-    if (!selectedFileData) {
-      updateProgress(15, t('downloadingFirmware'));
-      log(t('downloadingFirmware'));
-      selectedFileData = await firmwareDataPromise;
-    }
-    log(t('fileSize', {size: formatSize(selectedFileData.length)}), 'info');
-
-    // Step 2: Initialize ESP loader
-    updateProgress(20, t('initEsp'));
-    log(t('initEsp'));
-
-    espLoaderTerminal = new EspTerminal();
-
-    // Check if EspLoader is available
-    if (typeof window.EspLoader === 'undefined' ||
-        typeof window.Transport === 'undefined') {
-      throw new Error(t('esptoolNotLoaded'));
-    }
-
-    const transport = new window.Transport(port);
-    const loaderOptions = {
-      transport: transport,
-      baudrate: 115200,
-      terminal: espLoaderTerminal,
-      romBaudrate: 115200,
-      enableTracing: false
-    };
-
-    const esploader = new window.EspLoader(loaderOptions);
-
-    // Enter bootloader mode
-    log(t('bootloaderMode'));
-    await esploader.main();
-
-    log(t('chipDetected', {chip: esploader.chipName}), 'success');
-
-    updateProgress(35, t('preparingWrite'));
-
-    // Step 3: Flash firmware
-    updateProgress(40, t('writingFirmware'));
-    log(t('writingFirmware'));
-
-    // Convert Uint8Array to binary string (required by esptool-js)
-    const binaryString = Array.from(selectedFileData)
-                             .map(byte => String.fromCharCode(byte))
-                             .join('');
-
-    const flashOptions = {
-      fileArray: [{
-        data: binaryString,
-        address: 0x0  // For merged binary, start at 0
-      }],
+    await loader.writeFlash({
+      fileArray: [{data: toBinaryString(data), address: 0x0}],
       flashSize: 'keep',
       flashMode: 'keep',
       flashFreq: 'keep',
       eraseAll: false,
       compress: true,
-      reportProgress: (fileIndex, written, total) => {
-        const percent = Math.round((written / total) * 55) + 40;  // 40-95%
-        updateProgress(percent, t('writingProgress', {
-          written: formatSize(written),
-          total: formatSize(total)
-        }));
-      }
-    };
-
-    await esploader.writeFlash(flashOptions);
-
-    // Step 4: Reset device
-    updateProgress(95, t('restartingDevice'));
-    log(t('restartingDevice'));
-
-    await esploader.hardReset();
-
-    // Done!
-    updateProgress(100, t('flashSuccess'));
-    setProgressState('success', t('flashSuccess'));
-    log(t('flashDoneLog'), 'success');
-
-    flashBtn.textContent = t('done');
-    cancelBtn.textContent = t('close');
-
-  } catch (error) {
-    console.error('Flash error:', error);
-    log(t('errorPrefix', {message: error.message}), 'error');
-    setProgressState('error', `❌ ${t('errorPrefix', {message: error.message})}`);
-
-    // Retry the download on the next attempt if it failed
-    if (!selectedFileData && isLocalFirmware) loadLocalFirmware(currentFirmware);
-
-    flashBtn.disabled = false;
-    flashBtn.textContent = t('retry');
-  } finally {
-    isFlashing = false;
-
-    // Close port
-    if (port) {
-      try {
-        await port.close();
-      } catch (e) {
-        console.error('Error closing port:', e);
-      }
-      port = null;
-    }
-  }
-}
-
-// Create release card HTML
-function createReleaseCard(release, isLatest) {
-  const card = document.createElement('div');
-  card.className = `release-card${isLatest ? ' latest' : ''}`;
-
-  const firmwareList = findAllMergedFirmware(release.assets);
-  const hasWebSerial = window.isSecureContext && ('serial' in navigator);
-
-  let installButton = '';
-  if (firmwareList.length > 0 && hasWebSerial) {
-    // Store firmware data in a global map
-    const firmwareId = `firmware_${release.id}`;
-    window[firmwareId] = firmwareList;
-
-    installButton = `
-            <button class="install-btn" onclick="openFlashModal('${
-        release.tag_name}', window.${firmwareId})">
-          ${t('install')}
-            </button>
-        `;
-  } else if (firmwareList.length > 0 && !hasWebSerial) {
-    installButton =
-      `<button class="install-btn" disabled title="${t('browserNoWebSerialTitle')}">${t('browserNotSupported')}</button>`;
-  } else {
-    installButton =
-      `<button class="install-btn" disabled>${t('binaryNotFound')}</button>`;
-  }
-
-  const assetsHtml =
-      release.assets
-          .filter(a => a.name.endsWith('.bin') || a.name.endsWith('.zip'))
-          .map(
-              a => `
-            <a href="${a.browser_download_url}" class="asset-link" title="${
-                  formatSize(a.size)}">
-                📁 ${a.name}
-            </a>
-        `).join('');
-
-  card.innerHTML = `
-      ${isLatest ? `<span class="latest-badge">${t('latestVersionBadge')}</span>` : ''}
-        <div class="release-header">
-            <div class="release-info">
-                <h3><a href="${release.html_url}" target="_blank">${
-      release.name || release.tag_name}</a></h3>
-                <span class="release-date">📅 ${
-      formatDate(release.published_at)}</span>
-            </div>
-            <div class="release-actions">
-                ${installButton}
-            </div>
-        </div>
-        ${
-      release.body ?
-          `<div class="release-body">${parseMarkdown(release.body)}</div>` :
-          ''}
-        ${assetsHtml ? `<div class="release-assets">${assetsHtml}</div>` : ''}
-    `;
-
-  return card;
-}
-
-function renderReleases() {
-  releasesList.innerHTML = '';
-
-  if (releasesCache.length === 0) {
-    const repoLink =
-        `<a href="https://github.com/${GITHUB_REPO}/releases" target="_blank">${t('githubRepo')}</a>`;
-    releasesList.innerHTML = `
-      <div class="error-message">
-        <p>${t('noReleases', {link: repoLink})}</p>
-      </div>
-    `;
-    return;
-  }
-
-  releasesCache.forEach((release, index) => {
-    const card = createReleaseCard(release, index === 0);
-    releasesList.appendChild(card);
+      reportProgress: (_, written, total) => flashTask.progress(
+          20 + Math.round((written / total) * 75),
+          t('writingProgress', {written: formatSize(written), total: formatSize(total)}))
+    });
   });
-}
 
-// Fetch and display releases
-async function fetchReleasesFrom(url) {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+  if (ok) {
+    flashTask.progress(100, t('flashSuccess'), 'success');
+    flashTask.log(t('flashSuccess'), 'success');
+    cancelBtn.textContent = t('close');
+    flashBtn.textContent = t('flashBtn');
+  } else {
+    // A failed download is retried on the next attempt
+    if (isLocalFirmware) selectFirmware(selectedFirmware);
+    flashBtn.textContent = t('retry');
   }
-
-  return response.json();
+  flashBtn.disabled = false;
 }
 
-async function fetchReleases() {
-  try {
-    try {
-      releasesCache = await fetchReleasesFrom(LOCAL_RELEASES_URL);
-    } catch (error) {
-      // Not deployed by the workflow (e.g. local dev) - use GitHub directly
-      console.warn('Bundled releases not available:', error);
-      releasesCache = await fetchReleasesFrom(GITHUB_API_URL);
-    }
+// --- Erase ---
 
-    loadingEl.style.display = 'none';
-    renderReleases();
-
-  } catch (error) {
-    console.error('Error fetching releases:', error);
-    loadingEl.style.display = 'none';
-    releasesList.innerHTML = `
-            <div class="error-message">
-                <p>${t('loadReleasesError', {message: error.message})}</p>
-                <p>${t('tryOpenDirectly', {link: `<a href="https://github.com/${
-        GITHUB_REPO}/releases" target="_blank">${t('openGithubDirectly')}</a>`})}</p>
-            </div>
-        `;
-  }
-}
-
-// Erase flash
 async function startErase() {
-  if (!('serial' in navigator)) {
-    alert(t('serialUnsupported'));
-    return;
-  }
-
-  const eraseBtn = document.getElementById('eraseBtn');
-  const eraseProgress = document.getElementById('eraseProgress');
-  const eraseProgressFill = document.getElementById('eraseProgressFill');
-  const eraseProgressText = document.getElementById('eraseProgressText');
-  const eraseLog = document.getElementById('eraseLog');
-
-  function eraseLogMsg(message, type = 'info') {
-    const p = document.createElement('p');
-    p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-    p.className = `log-${type}`;
-    eraseLog.appendChild(p);
-    eraseLog.scrollTop = eraseLog.scrollHeight;
-  }
-
-  if (!confirm(t('eraseConfirm'))) {
-    return;
-  }
-
+  if (busy || !confirm(t('eraseConfirm'))) return;
   eraseBtn.disabled = true;
-  eraseBtn.textContent = t('erasing');
-  eraseLog.innerHTML = '';
-  eraseLog.classList.add('active');
-  eraseProgress.style.display = 'block';
-  eraseProgressFill.style.width = '0%';
+  eraseTask.reset();
 
-  let erasePort = null;
+  const ok = await withDevice(eraseTask, async loader => {
+    eraseTask.step(40, t('erasingFlash'));
+    await loader.eraseFlash();
+  });
 
-  try {
-    eraseLogMsg(t('selectComPort'));
-    eraseProgressFill.style.width = '10%';
-    eraseProgressText.textContent = t('connectToDevice');
-
-    erasePort = await navigator.serial.requestPort();
-    eraseLogMsg(t('portSelected'), 'success');
-
-    if (typeof window.EspLoader === 'undefined' ||
-        typeof window.Transport === 'undefined') {
-      throw new Error(t('esptoolNotLoaded'));
-    }
-
-    eraseProgressFill.style.width = '20%';
-    eraseProgressText.textContent = t('initEsp');
-    eraseLogMsg(t('initEsp'));
-
-    const terminal = {
-      clean() {},
-      writeLine(data) {
-        eraseLogMsg(data);
-      },
-      write(data) {
-        const lastP = eraseLog.lastElementChild;
-        if (lastP && !lastP.textContent.includes('[')) {
-          lastP.textContent += data;
-        } else {
-          const p = document.createElement('p');
-          p.textContent = data;
-          eraseLog.appendChild(p);
-        }
-        eraseLog.scrollTop = eraseLog.scrollHeight;
-      }
-    };
-
-    const transport = new window.Transport(erasePort);
-    const esploader = new window.EspLoader({
-      transport: transport,
-      baudrate: 115200,
-      terminal: terminal,
-      romBaudrate: 115200,
-      enableTracing: false
-    });
-
-    eraseLogMsg(t('bootloaderMode'));
-    await esploader.main();
-    eraseLogMsg(t('chipDetected', {chip: esploader.chipName}), 'success');
-
-    eraseProgressFill.style.width = '40%';
-    eraseProgressText.textContent = t('erasingFlash');
-    eraseLogMsg(t('erasingMayTakeTime'));
-
-    await esploader.eraseFlash();
-
-    eraseProgressFill.style.width = '90%';
-    eraseProgressText.textContent = t('restartingDevice');
-    eraseLogMsg(t('restartingDevice'));
-
-    await esploader.hardReset();
-
-    eraseProgressFill.style.width = '100%';
-    eraseProgressText.textContent = t('eraseSuccess');
-    eraseProgressText.className = 'progress-text success';
-    eraseLogMsg(t('eraseSuccessLog'), 'success');
-
-    eraseBtn.textContent = t('done');
-
-  } catch (error) {
-    console.error('Erase error:', error);
-    eraseLogMsg(t('errorPrefix', {message: error.message}), 'error');
-    eraseProgressText.textContent = `❌ ${t('errorPrefix', {message: error.message})}`;
-    eraseProgressText.className = 'progress-text error';
-  } finally {
-    eraseBtn.disabled = false;
-    if (eraseBtn.textContent === t('erasing')) {
-      eraseBtn.textContent = t('eraseBtnDefault');
-    }
-    setTimeout(() => {
-      eraseBtn.textContent = t('eraseBtnDefault');
-    }, 3000);
-
-    if (erasePort) {
-      try {
-        await erasePort.close();
-      } catch (e) {
-        console.error('Error closing port:', e);
-      }
-    }
+  if (ok) {
+    eraseTask.progress(100, t('eraseSuccess'), 'success');
+    eraseTask.log(t('eraseSuccess'), 'success');
   }
+  eraseBtn.disabled = false;
 }
 
-// Close modal on escape key
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && flashModal.classList.contains('active')) {
-    closeFlashModal();
-  }
+// --- Events ---
+
+document.querySelectorAll('.lang-btn').forEach(
+    btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
+
+releasesList.addEventListener('click', e => {
+  const button = e.target.closest('[data-install]');
+  if (button) openFlashModal(releases[button.dataset.install]);
 });
 
-// Close modal on backdrop click
-flashModal.addEventListener('click', (e) => {
-  if (e.target === flashModal) {
-    closeFlashModal();
-  }
+$('firmwareOptions').addEventListener('click', e => {
+  const option = e.target.closest('[data-firmware]');
+  if (option && !busy) selectFirmware(firmwareOptions[option.dataset.firmware]);
 });
 
-// Check if ESPTool is loaded
-function checkEsptoolLoaded() {
-  if (window.esptoolLoaded) {
-    console.log('ESPTool loaded successfully');
-    return true;
-  }
-  console.log('Waiting for ESPTool to load...');
-  return false;
-}
-
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-  const savedLanguage = localStorage.getItem('siteLanguage');
-  const browserLanguage = navigator.language.toLowerCase().startsWith('uk') ?
-      'uk' :
-      'en';
-  currentLanguage = savedLanguage && translations[savedLanguage] ?
-      savedLanguage :
-      browserLanguage;
-
-  applyTranslations();
-  checkWebSerialSupport();
-  fetchReleases();
-
-  // Check esptool status
-  if (!checkEsptoolLoaded()) {
-    window.addEventListener('esptool-loaded', () => {
-      console.log('ESPTool loaded event received');
-    });
-  }
+flashModal.addEventListener('click', e => {
+  // Backdrop click lands on the <dialog> element itself
+  if (e.target === flashModal || e.target.closest('[data-action="close"]')) closeFlashModal();
 });
+flashModal.addEventListener('cancel', e => {
+  e.preventDefault();
+  closeFlashModal();
+});
+
+fileInput.addEventListener('change', onFileSelected);
+flashBtn.addEventListener('click', startFlash);
+eraseBtn.addEventListener('click', startErase);
+
+// --- Init ---
+
+let savedLanguage = null;
+try { savedLanguage = localStorage.getItem('siteLanguage'); } catch {}
+currentLanguage = translations[savedLanguage] ? savedLanguage :
+    navigator.language.toLowerCase().startsWith('uk') ? 'uk' : 'en';
+
+applyTranslations();
+loadReleases();

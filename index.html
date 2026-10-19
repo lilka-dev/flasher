@@ -3,120 +3,98 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lilka Flasher - Оновлення прошивки</title>
+    <title>Lilka Flasher</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="header-controls">
-                <div class="language-switch" aria-label="Language switcher">
-                    <button class="lang-btn" id="langUkBtn" type="button" onclick="setLanguage('uk')">🇺🇦 УК</button>
-                    <button class="lang-btn" id="langEnBtn" type="button" onclick="setLanguage('en')">🇬🇧 EN</button>
-                </div>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a class="brand" href="./">
+                <img src="https://docs.lilka.dev/uk/latest/_static/lilka_logo.png" alt="" onerror="this.remove()">
+                <span>Lilka Flasher</span>
+            </a>
+            <div class="language-switch" role="group" aria-label="Language">
+                <button class="lang-btn" type="button" data-lang="uk">УК</button>
+                <button class="lang-btn" type="button" data-lang="en">EN</button>
             </div>
-            <div class="logo">
-                <img src="https://docs.lilka.dev/uk/latest/_static/lilka_logo.png" alt="Lilka" onerror="this.style.display='none'">
-                <h1>Lilka Flasher</h1>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <h1 data-i18n="heroTitle"></h1>
+            <p class="subtitle" data-i18n="subtitle"></p>
+        </section>
+
+        <div class="alert alert-warning" id="browserWarning" hidden></div>
+
+        <ol class="steps">
+            <li data-i18n="step1"></li>
+            <li data-i18n="step2"></li>
+            <li data-i18n="step3"></li>
+        </ol>
+        <p class="hint" data-i18n-html="note"></p>
+
+        <section class="section">
+            <h2 data-i18n="releasesTitle"></h2>
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p data-i18n="loading"></p>
             </div>
-            <p class="subtitle" id="subtitleText">Оновлення прошивки Keira для Lilka</p>
-        </header>
+            <div class="releases-list" id="releasesList"></div>
+        </section>
 
-        <main>
-            
-            <section class="instructions-section">
-                <h2 id="instructionsTitle">📖 Інструкція</h2>
-                <ol>
-                    <li id="instruction1">Підключіть Lilka до комп'ютера через USB-кабель</li>
-                    <li id="instruction2">Виберіть версію прошивки зі списку нижче та натисніть "Встановити"</li>
-                    <li id="instruction3">Виберіть мову прошивки</li>
-                    <li id="instruction4">Якщо прошивки немає на сайті — завантажте .bin файл і виберіть його через "Вибрати .bin файл"</li>
-                    <li id="instruction5">Натисніть "Підключити та прошити" і виберіть COM-порт</li>
-                    <li id="instruction6">Дочекайтеся завершення прошивки</li>
-                </ol>
-                <div class="note" id="instructionsNote">
-                    <strong>Примітка:</strong> Якщо порт не з'являється, можливо потрібно встановити драйвер CH340/CP2102.
-                    Переконайтеся, що ви використовуєте <strong>Chrome, Edge або Opera</strong> — інші браузери не підтримують Web Serial API.
-                </div>
-            </section>
-
-            <section class="erase-section">
-                <h2 id="eraseTitle">🗑️ Очистити пристрій</h2>
-                <p id="eraseDescription">Повне стирання flash-пам'яті ESP32. Це видалить прошивку та всі дані з пристрою.</p>
-                <button class="btn btn-danger" id="eraseBtn" onclick="startErase()">🗑️ Стерти flash</button>
-                <div class="erase-progress" id="eraseProgress" style="display: none;">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="eraseProgressFill"></div>
-                    </div>
-                    <p class="progress-text" id="eraseProgressText">Готово до стирання</p>
-                </div>
-                <div class="flash-log" id="eraseLog"></div>
-            </section>
-
-            <section class="releases-section">
-                <h2 id="releasesTitle">📦 Доступні версії</h2>
-                <div class="browser-warning" id="browserWarning">
-                    <p id="browserWarningText">⚠️ Web Serial API підтримується тільки в Chrome, Edge та Opera. Будь ласка, використовуйте один з цих браузерів.</p>
-                </div>
-                <div class="loading" id="loading">
-                    <div class="spinner"></div>
-                    <p id="loadingText">Завантаження релізів...</p>
-                </div>
-                <div class="releases-list" id="releasesList"></div>
-            </section>
-
-            <!-- Flash Modal -->
-            <div class="modal-overlay" id="flashModal">
-                <div class="modal">
-                    <div class="modal-header">
-                        <h3 id="flashModalTitle">⚡ Прошивка Lilka</h3>
-                        <button class="modal-close" onclick="closeFlashModal()">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div id="flashInfo">
-                            <p><strong id="flashVersionLabel">Версія:</strong> <span id="flashVersion"></span></p>
-                        </div>
-                        
-                        <div class="file-select-section">
-                            <p class="step-label" id="flashStep1">Крок 1: Завантажте файл прошивки</p>
-                            <div class="firmware-options" id="firmwareOptions">
-                                <!-- Will be populated by JS -->
-                            </div>
-                            
-                            <p class="step-label" id="flashStep2">Крок 2: Виберіть завантажений файл</p>
-                            <label class="file-input-label" id="fileInputLabel">
-                                <input type="file" id="firmwareFile" accept=".bin" onchange="onFileSelected(this)">
-                                <span class="file-input-text" id="fileInputText">📁 Вибрати .bin файл</span>
-                            </label>
-                        </div>
-                        
-                        <div class="flash-progress" id="flashProgress" style="display: none;">
-                            <div class="progress-bar">
-                                <div class="progress-fill" id="progressFill"></div>
-                            </div>
-                            <p class="progress-text" id="progressText">Готово до прошивки</p>
-                        </div>
-                        <div class="flash-log" id="flashLog"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closeFlashModal()" id="cancelBtn">Скасувати</button>
-                        <button class="btn btn-primary" onclick="startFlash()" id="flashBtn" disabled>🔌 Підключити та прошити</button>
-                    </div>
-                </div>
+        <section class="section danger-zone">
+            <div>
+                <h2 data-i18n="eraseTitle"></h2>
+                <p data-i18n="eraseDescription"></p>
             </div>
-        </main>
+            <button class="btn btn-danger" id="eraseBtn" type="button" data-i18n="eraseBtn"></button>
+            <div class="task" id="eraseTask" hidden>
+                <div class="progress-bar"><div class="progress-fill"></div></div>
+                <p class="progress-text"></p>
+                <div class="flash-log"></div>
+            </div>
+        </section>
+    </main>
 
-        <footer>
-            <p>
-                <a href="https://lilka.dev" target="_blank">lilka.dev</a> • 
-                <a href="https://github.com/lilka-dev/" target="_blank">GitHub</a> • 
-                <a href="https://docs.lilka.dev" target="_blank">Docs</a>
-            </p>
-        </footer>
-    </div>
+    <footer>
+        <a href="https://lilka.dev" target="_blank" rel="noopener">lilka.dev</a>
+        <a href="https://github.com/lilka-dev/" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://docs.lilka.dev" target="_blank" rel="noopener">Docs</a>
+    </footer>
+
+    <dialog class="modal" id="flashModal">
+        <div class="modal-header">
+            <h3><span data-i18n="modalTitle"></span> <span class="modal-version" id="flashVersion"></span></h3>
+            <button class="modal-close" type="button" data-action="close" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="step-label" id="firmwareLabel"></p>
+            <div class="firmware-options" id="firmwareOptions"></div>
+
+            <div id="manualFile">
+                <p class="step-label" data-i18n="manualStep2"></p>
+                <label class="file-input">
+                    <input type="file" id="firmwareFile" accept=".bin">
+                    <span id="fileInputText"></span>
+                </label>
+            </div>
+
+            <div class="task" id="flashTask" hidden>
+                <div class="progress-bar"><div class="progress-fill"></div></div>
+                <p class="progress-text"></p>
+                <div class="flash-log"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" data-action="close" id="cancelBtn"></button>
+            <button class="btn btn-primary" type="button" id="flashBtn"></button>
+        </div>
+    </dialog>
 
     <script type="importmap">
     {
@@ -125,15 +103,6 @@
         }
     }
     </script>
-    <script type="module">
-        import { ESPLoader, Transport } from 'https://cdn.jsdelivr.net/npm/esptool-js@0.4.3/+esm';
-        window.EspLoader = ESPLoader;
-        window.Transport = Transport;
-        
-        // Signal that esptool is loaded
-        window.esptoolLoaded = true;
-        window.dispatchEvent(new Event('esptool-loaded'));
-    </script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
